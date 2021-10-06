@@ -1,5 +1,14 @@
 #!/usr/bin/gawk -f
 
+# UTILITY FUNCTIONS
+#################################################
+
+function basename(file) 
+{
+    sub(".*/", "", file)
+    return file
+  }
+
 function readfile(file,     tmp, save_rs)
 {
     save_rs = RS
@@ -10,8 +19,42 @@ function readfile(file,     tmp, save_rs)
 
     RS = save_rs
 
-    return substr(tmp, /%FILENAM%/, FILENAME)
+    sub(/%SOURCE_FILE_NAME%/, basename(FILENAME), tmp)
+    
+    return tmp
 }
+ 
+function licenseTagStart(version, tagStart)
+{
+    if (verbose)
+        print "[Info] Found " tagStart " tag. Version: " a[1] > "/dev/stderr"
+
+    fileLicenseVersion = version
+
+    licenseStart = 1
+    licenseStartTag = $0
+
+    next
+}
+
+function licenseTagEnd(tagStart, tagEng)
+{
+    if (verbose)
+        print "[Info] Found " tagEng " tag." > "/dev/stderr"
+
+    if (licenseStart != 1)
+    {
+        print "[Error] " tagEng " found but " tagStart " not found. File: \"" FILENAME "\"" > "/dev/stderr"
+        exit 1
+    }
+
+    licenseEnd = 1
+    next
+}
+
+
+# INITIALIZATION
+#################################################
 
 BEGIN {
     quiet = 0
@@ -42,69 +85,72 @@ BEGINFILE {
         print "[Info] Processing file '" FILENAME "'..." > "/dev/stderr"
 } 
 
-match($0, /^(?:\xef\xbb\xbf)?\s*\/\*\s*ZE_POST_PROCESSOR_START\s*\(\s*License\s*(?:,\s*([0-9]+\.[0-9]+)+\s*)?\)\s*\*\/\s*$/, a) {
-    if (verbose)
-        print "[Info] Found ZE_POST_PROCESSOR_START tag. Version: " a[1] > "/dev/stderr"
 
-    fileLicenseVersion = a[1]
+# START TAGS
+#################################################
+/^\xef\xbb\xbf/ {
+    print "[Info] UTF-8 BOM detected. Removing..."  > "/dev/stderr"
+    sub(/^\xef\xbb\xbf/, "");
+}
 
-    licenseStart = 1
-    licenseStartTag = $0
+match($0, /^\s*\/\/\s*ZE_SOURCE_PROCESSOR_START\s*\(\s*License\s*,\s*([0-9]+\.[0-9]+)+\s*\)\s*$/, versionMatch) {
+    licenseTagStart(versionMatch[1], "ZE_SOURCE_PROCESSOR_START")
+}
 
-    next
+match($0, /^\s*\/\*\s*ZE_POST_PROCESSOR_START\s*\(\s*License\s*(?:,\s*([0-9]+\.[0-9]+)+\s*)?\)\s*\*\/\s*$/, versionMatch) {
+    licenseTagStart(versionMatch[1], "ZE_POST_PROCESSOR_START")
 }
 
 /\/\*ZEHEADER_START\*\// {
-    if (verbose)
-        print "[Info] Found ZEHEADER_START tag." > "/dev/stderr"
+    licenseTagStart("", "ZEHEADER_START")
+}
 
-    licenseStart = 1
-    next
+
+# END TAGS
+#################################################
+
+/^\s*\/\/\s*ZE_SOURCE_PROCESSOR_END\s*\(\s*\)\s*$/ {
+    licenseTagEnd("ZE_SOURCE_PROCESSOR_START", "ZE_SOURCE_PROCESSOR_END")
 }
 
 /^\s*\/\*\s*ZE_POST_PROCESSOR_END\s*\(\s*\)\s*\*\/\s*$/ {
-    if (verbose)
-        print "[Info] Found ZE_POST_PROCESSOR_END tag." > "/dev/stderr"
-
-    if (licenseStart != 1)
-    {
-        print "[Error] ZE_POST_PROCESSOR_END found but ZE_POST_PROCESSOR_START not found. File: \"" FILENAME "\"" > "/dev/stderr"
-        exit 1
-    }
-
-    licenseEnd = 1
-    next
+    licenseTagEnd("ZE_POST_PROCESSOR_START", "ZE_POST_PROCESSOR_END")
 }
 
 /\/\*ZEHEADER_END\*\// {
-    if (verbose)
-        print "[Info] Found ZE_HEADER_END tag." > "/dev/stderr"
-
-    if (licenseStart != 1)
-    {
-        print "[Error] ZE_HEADER_END found but ZE_HEADER_START not found. File: \"" FILENAME "\"" > "/dev/stderr"
-        exit 1
-    }
-
-    licenseEnd = 1
-    next
+    licenseTagEnd("ZEHEADER_START", "ZEHEADER_END")
 }
+
+
+# PROBLEM DETECTION
+#################################################
+
+# Missing Start Tag
+# Missing End Tag
+
+
+# COPY REGULAR LINES
+#################################################
 
 { 
     if (!licenseStart || licenseEnd)
         buffer = buffer $0 "\n"
 }
 
+
+# OUTPUT
+#################################################
+
 END {   
     if (!licenseStart && !addMissing)
     {
-        print "[Error] ZE_POST_PROCESSOR_START not found. File: \"" FILENAME "\"" > "/dev/stderr"
+        print "[Error] license START tag not found. File: \"" FILENAME "\"" > "/dev/stderr"
         exit 2
     }
 
     if (licenseStart && !licenseEnd)
     {
-        print "[Error] ZE_POST_PROCESSOR_END not found. File: \"" FILENAME "\"" > "/dev/stderr"
+        print "[Error] license END tag not found. File: \"" FILENAME "\"" > "/dev/stderr"
         exit 3
     }
 
@@ -122,7 +168,7 @@ END {
             print "[Warning] Diffrent license version found. Replacing license. Actual Version: \"" fileLicenseVersion "\" Expected Version: \"" licenseVersion "\" File: \"" FILENAME "\"" > "/dev/stderr"
     }
 
-    print "//ZE_SOURCE_PROCESSOR_START(License, " licenseVersion ")\n" license "\n" "//ZE_SOURCE_PROCESSOR_END()\n" buffer > FILENAME
+    printf "//ZE_SOURCE_PROCESSOR_START(License, %s)\n%s\n//ZE_SOURCE_PROCESSOR_END()\n%s", licenseVersion, license, buffer > FILENAME
 
     if (verbose)
         print "[Info] Processing done. File \"" FILENAME "\"" > "/dev/stderr"
