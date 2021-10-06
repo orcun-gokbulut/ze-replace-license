@@ -7,7 +7,13 @@ function basename(file)
 {
     sub(".*/", "", file)
     return file
-  }
+}
+
+function _exit(code)
+{
+    exitCode = code
+    exit code
+}
 
 function readfile(file,     tmp, save_rs)
 {
@@ -45,7 +51,18 @@ function licenseTagEnd(tagStart, tagEng)
     if (licenseStart != 1)
     {
         print "[Error] " tagEng " found but " tagStart " not found. File: \"" FILENAME "\"" > "/dev/stderr"
-        exit 1
+        if (fixFishy)
+        {
+            print "[Warning] Fixing fishy. Non-existing START tag. File: \"" FILENAME "\"" > "/dev/stderr"
+
+            buffer=""
+            licenseStart=1
+
+        }
+        else
+        {
+            _exit(1)
+        }
     }
 
     licenseEnd = 1
@@ -60,6 +77,8 @@ BEGIN {
     quiet = 0
     verbose = 0
     addMissing = 0
+    exitCode = -1
+    fixFishy=0
     licenseVersion = "1.0"
     licenseFile = "license-header.txt"
 }
@@ -68,12 +87,13 @@ BEGINFILE {
     if (system("test -f " $licenseFile) != 0)
     {
         print "[Error] License file '" licenseFile "' not found. File \"" FILENAME "\"" > "/dev/stderr"
-        exit 1
+        _exit(1)
     }
 
     licenseStart = 0
     licenseEnd = 0
     buffer = ""
+    foundPreprocessor = 0
 
     if (verbose)
         print "[Info] Reading license file '" licenseFile "'..." > "/dev/stderr"
@@ -93,16 +113,16 @@ BEGINFILE {
     sub(/^\xef\xbb\xbf/, "");
 }
 
-match($0, /^\s*\/\/\s*ZE_SOURCE_PROCESSOR_START\s*\(\s*License\s*,\s*([0-9]+\.[0-9]+)+\s*\)\s*$/, versionMatch) {
+match($0, /^\s*\/\/\s*ZE_SOURCE_PROCESSOR_START\s*\(\s*License\s*,\s*([0-9]+\.[0-9]+)\s*\)\s*$/, versionMatch) {
     licenseTagStart(versionMatch[1], "ZE_SOURCE_PROCESSOR_START")
 }
 
-match($0, /^\s*\/\*\s*ZE_POST_PROCESSOR_START\s*\(\s*License\s*(?:,\s*([0-9]+\.[0-9]+)+\s*)?\)\s*\*\/\s*$/, versionMatch) {
-    licenseTagStart(versionMatch[1], "ZE_POST_PROCESSOR_START")
+/^\s*\/\*\s*ZE_POST_PROCESSOR_START\s*\(\s*License\s*\)\s*\*\/\s*$/ {
+    licenseTagStart("", "ZE_POST_PROCESSOR_START")
 }
 
 /\/\*ZEHEADER_START\*\// {
-    licenseTagStart("", "ZEHEADER_START")
+    licenseTagStart("", "FISHY_START" "FISHY_END")
 }
 
 
@@ -119,6 +139,16 @@ match($0, /^\s*\/\*\s*ZE_POST_PROCESSOR_START\s*\(\s*License\s*(?:,\s*([0-9]+\.[
 
 /\/\*ZEHEADER_END\*\// {
     licenseTagEnd("ZEHEADER_START", "ZEHEADER_END")
+}
+
+/^(#ifndef|#include|#pragma)/ {
+    if (licenseStart == 1 && licenseEnd != 1 && foundPreprocessor == 0 && fixFishy == 1)
+    {
+        print "[Warning] Fixing fishy. Non-existing END tag. File: \"" FILENAME "\"" > "/dev/stderr"
+        buffer = buffer $0 "\n"
+        foundPreprocessor = 1
+        licenseTagEnd()
+    }
 }
 
 
@@ -141,17 +171,20 @@ match($0, /^\s*\/\*\s*ZE_POST_PROCESSOR_START\s*\(\s*License\s*(?:,\s*([0-9]+\.[
 # OUTPUT
 #################################################
 
-END {   
+END {
+    if (exitCode != -1)
+        exit exitCode
+
     if (!licenseStart && !addMissing)
     {
-        print "[Error] license START tag not found. File: \"" FILENAME "\"" > "/dev/stderr"
-        exit 2
+        print "[Error] License START tag not found. File: \"" FILENAME "\"" > "/dev/stderr"
+        _exit(2)
     }
 
     if (licenseStart && !licenseEnd)
     {
-        print "[Error] license END tag not found. File: \"" FILENAME "\"" > "/dev/stderr"
-        exit 3
+        print "[Error] License END tag not found. File: \"" FILENAME "\"" > "/dev/stderr"
+        _exit(3)
     }
 
     if (!licenseStart)
@@ -173,5 +206,5 @@ END {
     if (verbose)
         print "[Info] Processing done. File \"" FILENAME "\"" > "/dev/stderr"
 
-    exit 0
+    _exit(0)
 }
