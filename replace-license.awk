@@ -36,7 +36,6 @@ function licenseTagStart(version, tagStart)
         print "[Info] Found " tagStart " tag. Version: " a[1] > "/dev/stderr"
 
     fileLicenseVersion = version
-
     licenseStart = 1
     licenseStartTag = $0
 
@@ -55,9 +54,8 @@ function licenseTagEnd(tagStart, tagEng)
         {
             print "[Warning] Fixing fishy. Non-existing START tag. File: \"" FILENAME "\"" > "/dev/stderr"
 
-            buffer=""
-            licenseStart=1
-
+            buffer = ""
+            licenseStart = 1
         }
         else
         {
@@ -78,7 +76,7 @@ BEGIN {
     verbose = 0
     addMissing = 0
     exitCode = -1
-    fixFishy=0
+    fixFishy = 0
     licenseVersion = "1.0"
     licenseFile = "license-header.txt"
 }
@@ -150,13 +148,6 @@ match($0, /^\s*\/\/\s*ZE_SOURCE_PROCESSOR_START\s*\(\s*License\s*,\s*([0-9]+\.[0
         licenseTagEnd()
     }
 }
-
-
-# PROBLEM DETECTION
-#################################################
-
-# Missing Start Tag
-# Missing End Tag
 
 
 # COPY REGULAR LINES
