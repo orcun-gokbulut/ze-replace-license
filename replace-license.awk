@@ -1,5 +1,7 @@
 #!/usr/bin/gawk -f
 
+@load "readfile"
+
 # UTILITY FUNCTIONS
 #################################################
 
@@ -15,25 +17,10 @@ function _exit(code)
     exit code
 }
 
-function readfile(file,     tmp, save_rs)
-{
-    save_rs = RS
-    RS = "^$"
-    
-    getline tmp < file
-    close(file)
-
-    RS = save_rs
-
-    sub(/%SOURCE_FILE_NAME%/, basename(FILENAME), tmp)
-    
-    return tmp
-}
- 
 function licenseTagStart(version, tagStart)
 {
     if (verbose)
-        print "[Info] Found " tagStart " tag. Version: " a[1] > "/dev/stderr"
+        print "[Info] Found " tagStart " tag. Version: " version > "/dev/stderr"
 
     fileLicenseVersion = version
     licenseStart = 1
@@ -77,6 +64,7 @@ BEGIN {
     addMissing = 0
     exitCode = -1
     fixFishy = 0
+    cmakeMode = 0
     licenseVersion = "1.0"
     licenseFile = "license-header.txt"
 }
@@ -97,7 +85,9 @@ BEGINFILE {
         print "[Info] Reading license file '" licenseFile "'..." > "/dev/stderr"
     
     fileLicenseVersion = ""
+
     license = readfile(licenseFile)
+    sub(/%SOURCE_FILE_NAME%/, basename(FILENAME), license)
 
     if (!quiet)
         print "[Info] Processing file '" FILENAME "'..." > "/dev/stderr"
@@ -109,6 +99,10 @@ BEGINFILE {
 /^\xef\xbb\xbf/ {
     print "[Info] UTF-8 BOM detected. Removing..."  > "/dev/stderr"
     sub(/^\xef\xbb\xbf/, "");
+}
+
+match($0, /^\s*#\s*ZE_SOURCE_PROCESSOR_START\s*\(\s*License\s*,\s*([0-9]+\.[0-9]+)\s*\)\s*$/, versionMatch) && cmakeMode {
+    licenseTagStart(versionMatch[1], "ZE_SOURCE_PROCESSOR_START (CMAKE)")
 }
 
 match($0, /^\s*\/\/\s*ZE_SOURCE_PROCESSOR_START\s*\(\s*License\s*,\s*([0-9]+\.[0-9]+)\s*\)\s*$/, versionMatch) {
@@ -126,6 +120,10 @@ match($0, /^\s*\/\/\s*ZE_SOURCE_PROCESSOR_START\s*\(\s*License\s*,\s*([0-9]+\.[0
 
 # END TAGS
 #################################################
+
+/^\s*#\s*ZE_SOURCE_PROCESSOR_END\s*\(\s*\)\s*$/ && cmakeMode {
+    licenseTagEnd("ZE_SOURCE_PROCESSOR_START (CMAKE)", "ZE_SOURCE_PROCESSOR_END (CMAKE)")
+}
 
 /^\s*\/\/\s*ZE_SOURCE_PROCESSOR_END\s*\(\s*\)\s*$/ {
     licenseTagEnd("ZE_SOURCE_PROCESSOR_START", "ZE_SOURCE_PROCESSOR_END")
@@ -192,7 +190,10 @@ END {
             print "[Warning] Diffrent license version found. Replacing license. Actual Version: \"" fileLicenseVersion "\" Expected Version: \"" licenseVersion "\" File: \"" FILENAME "\"" > "/dev/stderr"
     }
 
-    printf "//ZE_SOURCE_PROCESSOR_START(License, %s)\n%s\n//ZE_SOURCE_PROCESSOR_END()\n%s", licenseVersion, license, buffer > FILENAME
+    if (cmakeMode)
+        printf "#ZE_SOURCE_PROCESSOR_START(License, %s)\n%s\n#ZE_SOURCE_PROCESSOR_END()\n%s", licenseVersion, license, buffer > FILENAME
+    else
+        printf "//ZE_SOURCE_PROCESSOR_START(License, %s)\n%s\n//ZE_SOURCE_PROCESSOR_END()\n%s", licenseVersion, license, buffer > FILENAME
 
     if (verbose)
         print "[Info] Processing done. File \"" FILENAME "\"" > "/dev/stderr"
